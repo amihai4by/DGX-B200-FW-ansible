@@ -1,0 +1,75 @@
+- name: DGX B200 Full Firmware Update
+  hosts: dgx_nodes
+  become: yes
+  gather_facts: no
+  vars_files:
+    - vars/firmware_files.yaml
+
+  tasks:
+    - name: Copy all firmware and config files
+      copy:
+        src: "files/{{ item }}"
+        dest: "/tmp/{{ item }}"
+      loop:
+        - "{{ firmware_bmc_pkg | basename }}"
+        - "{{ firmware_gpu_transition | basename }}"
+        - "{{ firmware_gpu_latest | basename }}"
+        - "{{ update_bmc_json | basename }}"
+        - "{{ mb_tray_json | basename }}"
+        - "{{ gpu_tray_json | basename }}"
+
+    - name: ▶️ Update BMC firmware
+      shell: >
+        nvfwupd -t ip={{ ansible_host }} user={{ bmc_user }} password={{ bmc_pass }}
+        update_fw -p {{ firmware_bmc_pkg }} -y -s {{ update_bmc_json }}
+      register: update_bmc
+      failed_when: "'TaskState: Completed' not in update_bmc.stdout"
+
+    - name: 🔁 Cold reset BMC
+      shell: ipmitool -I lanplus -H {{ ansible_host }} -U {{ bmc_user }} -P {{ bmc_pass }} mc reset cold
+
+    - name: ⏱️ Wait for BMC to return (IPMI 623)
+      wait_for:
+        host: "{{ ansible_host }}"
+        port: 623
+        timeout: 600
+        state: started
+
+    - name: ▶️ Update motherboard tray firmware
+      shell: >
+        nvfwupd -t ip={{ ansible_host }} user={{ bmc_user }} password={{ bmc_pass }}
+        update_fw -p {{ firmware_bmc_pkg }} -y -s {{ mb_tray_json }}
+      register: update_motherboard
+      failed_when: "'TaskState: Completed' not in update_motherboard.stdout"
+
+    - name: ▶️ Update GPU tray to transition firmware
+      shell: >
+        nvfwupd -t ip={{ ansible_host }} user={{ bmc_user }} password={{ bmc_pass }}
+        update_fw -p {{ firmware_gpu_transition }} -y -s {{ gpu_tray_json }}
+      register: update_gpu_transition
+      failed_when: "'TaskState: Completed' not in update_gpu_transition.stdout"
+
+    - name: 🔄 Power cycle chassis (cold)
+      shell: ipmitool -I lanplus -H {{ ansible_host }} -U {{ bmc_user }} -P {{ bmc_pass }} chassis power cycle
+
+    - name: ▶️ Update GPU tray to latest firmware
+      shell: >
+        nvfwupd -t ip={{ ansible_host }} user={{ bmc_user }} password={{ bmc_pass }}
+        update_fw -p {{ firmware_gpu_latest }} -y -s {{ gpu_tray_json }}
+      register: update_gpu_latest
+      failed_when: "'TaskState: Completed' not in update_gpu_latest.stdout"
+
+    - name: ⏹️ AC power cycle reminder
+      debug:
+        msg: "⚠️ Please perform a full AC power cycle manually or via PDU to activate all firmware."
+
+    - name: ✅ Final firmware verification
+      shell: >
+        nvfwupd -t ip={{ ansible_host }} user={{ bmc_user }} password={{ bmc_pass }}
+        show_version -p {{ firmware_bmc_pkg }} {{ firmware_gpu_latest }}
+      register: verify_versions
+      changed_when: false
+
+    - name: 📋 Print final firmware versions
+      debug:
+        var: verify_versions.stdout_lines
