@@ -1,0 +1,6 @@
+firmware_bmc_pkg: /tmp/nvfw_DGX_250220.1.0.fwpkg
+firmware_gpu_transition: /tmp/nvfw_DGX-HGX-B100-B200x8_250114.1.0.fwpkg
+firmware_gpu_latest: /tmp/nvfw_DGX-HGX-B100-B200x8_250302.1.3.fwpkg
+update_bmc_json: /tmp/update_bmc.json
+mb_tray_json: /tmp/mb_tray.json
+gpu_tray_json: /tmp/gpu_tray.json
